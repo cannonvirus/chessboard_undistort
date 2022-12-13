@@ -53,7 +53,7 @@ using namespace rapidjson;
     } while (0);
 
 struct Vpi_param {
-    float vpi_k1      = -0.0001;
+    float vpi_k1      = 0.0;
     float vpi_k2      = 0.0;
     float x_scale     = 1.0;
     float y_scale     = 1.0;
@@ -65,12 +65,11 @@ struct Vpi_param {
     float y_pad       = 0.0;
     int   x_focus     = 0;
     int   y_focus     = 0;  
-    int   x_resize    = 1280;
-    int   y_resize    = 720;
+    int   x_resize    = 640;
+    int   y_resize    = 360;
 };
 
-// Defining the dimensions of checkerboard
-int CHECKERBOARD[2]{9,5}; 
+
 
 void make_VPICamera_Param(const cv::Size& imgSize, const Vpi_param& vpi_param, VPICameraIntrinsic& K, VPICameraExtrinsic& X, vector<double>& coeffs) {
 
@@ -130,7 +129,12 @@ float distanceCalculate(float x1, float y1, float x2, float y2)
 }
 
 
-float make_dist_mse_loss(const vector<cv::Point2f>& corner_pts) {
+float make_dist_mse_loss(const vector<cv::Point2f>& corner_pts, int chessboard[2]) {
+
+    // chessboard[0] : 9 (열)
+    // chessboard[1] : 5 (행)
+    // cout << chessboard[0] << " | " << chessboard[1] << endl;
+    // cout << "-----------------------------" << endl;
 
     // for (int i = 0; i < static_cast<int>(corner_pts.size()); i++) {
     //     float x = corner_pts[i].x;
@@ -138,29 +142,73 @@ float make_dist_mse_loss(const vector<cv::Point2f>& corner_pts) {
     //     cout << "x : " << x << " | y : " << y << endl;
     // }
 
-    // pair sampling
-    float d0 = distanceCalculate(corner_pts[10].x, corner_pts[10].y, corner_pts[11].x, corner_pts[11].y);
-    float d1 = distanceCalculate(corner_pts[11].x, corner_pts[11].y, corner_pts[20].x, corner_pts[20].y);
-    float d2 = distanceCalculate(corner_pts[20].x, corner_pts[20].y, corner_pts[21].x, corner_pts[21].y);
-    float d3 = distanceCalculate(corner_pts[21].x, corner_pts[21].y, corner_pts[30].x, corner_pts[30].y);
-    float d4 = distanceCalculate(corner_pts[30].x, corner_pts[30].y, corner_pts[31].x, corner_pts[31].y);
-    float d5 = distanceCalculate(corner_pts[31].x, corner_pts[31].y, corner_pts[32].x, corner_pts[32].y);
-    float d6 = distanceCalculate(corner_pts[32].x, corner_pts[32].y, corner_pts[23].x, corner_pts[23].y);
-    float d7 = distanceCalculate(corner_pts[23].x, corner_pts[23].y, corner_pts[24].x, corner_pts[24].y);
-    float d8 = distanceCalculate(corner_pts[24].x, corner_pts[24].y, corner_pts[15].x, corner_pts[15].y);
-    float d9 = distanceCalculate(corner_pts[15].x, corner_pts[15].y, corner_pts[16].x, corner_pts[16].y);
+    float sum_of_distance = 0.0f;
+    float sum_of_square_distance = 0.0f;
+    float num_of_distance = 0.0f;
 
-    float avg = (d0+d1+d2+d3+d4+d5+d6+d7+d8+d9)/10;
-    float mse = sqrt(pow(d0-avg,2)
-                    + pow(d1-avg,2)
-                    + pow(d2-avg,2)
-                    + pow(d3-avg,2)
-                    + pow(d4-avg,2)
-                    + pow(d5-avg,2)
-                    + pow(d6-avg,2)
-                    + pow(d7-avg,2)
-                    + pow(d8-avg,2)
-                    + pow(d9-avg,2));
+    // left_right distance
+    for (int i = 0; i < chessboard[1]; i++) {
+        for (int j = 0; j < chessboard[0]; j++) {
+            int bdot_idx = i * chessboard[0] + j;
+            int adot_idx = i * chessboard[0] + j + 1;
+            if (adot_idx == chessboard[0] * (i + 1)) {
+                continue;
+            }
+            float dist = distanceCalculate(corner_pts[bdot_idx].x, corner_pts[bdot_idx].y, corner_pts[adot_idx].x, corner_pts[adot_idx].y);
+            sum_of_distance += dist;
+            sum_of_square_distance += pow(dist, 2);
+            num_of_distance += 1;
+            // cout << bdot_idx << " | " << adot_idx << endl;
+        }
+        // cout << "-----------------------------" << endl;
+    }
+
+    // up_down distance
+    for (int i = 0; i < chessboard[0]; i++) { // 9
+        for (int j = 0; j < chessboard[1]; j++) { // 5
+            int bdot_idx = j * chessboard[0] + i;
+            int adot_idx = (j + 1) * chessboard[0] + i;
+            if (adot_idx == chessboard[0] * chessboard[1] + i) {
+                continue;
+            }
+            float dist = distanceCalculate(corner_pts[bdot_idx].x, corner_pts[bdot_idx].y, corner_pts[adot_idx].x, corner_pts[adot_idx].y);
+            sum_of_distance += dist;
+            sum_of_square_distance += pow(dist, 2);
+            num_of_distance += 1;
+            // cout << bdot_idx << " | " << adot_idx << endl;
+        }
+        // cout << "-----------------------------" << endl;
+    }
+
+    float avg_distance = sum_of_distance / num_of_distance;
+    float square_mse = sum_of_square_distance/num_of_distance - pow(avg_distance, 2);
+
+    float mse = 0.0f;
+    if (square_mse > 0) mse = sqrt(square_mse);
+
+    // pair sampling
+    // float d0 = distanceCalculate(corner_pts[10].x, corner_pts[10].y, corner_pts[11].x, corner_pts[11].y);
+    // float d1 = distanceCalculate(corner_pts[11].x, corner_pts[11].y, corner_pts[20].x, corner_pts[20].y);
+    // float d2 = distanceCalculate(corner_pts[20].x, corner_pts[20].y, corner_pts[21].x, corner_pts[21].y);
+    // float d3 = distanceCalculate(corner_pts[21].x, corner_pts[21].y, corner_pts[30].x, corner_pts[30].y);
+    // float d4 = distanceCalculate(corner_pts[30].x, corner_pts[30].y, corner_pts[31].x, corner_pts[31].y);
+    // float d5 = distanceCalculate(corner_pts[31].x, corner_pts[31].y, corner_pts[32].x, corner_pts[32].y);
+    // float d6 = distanceCalculate(corner_pts[32].x, corner_pts[32].y, corner_pts[23].x, corner_pts[23].y);
+    // float d7 = distanceCalculate(corner_pts[23].x, corner_pts[23].y, corner_pts[24].x, corner_pts[24].y);
+    // float d8 = distanceCalculate(corner_pts[24].x, corner_pts[24].y, corner_pts[15].x, corner_pts[15].y);
+    // float d9 = distanceCalculate(corner_pts[15].x, corner_pts[15].y, corner_pts[16].x, corner_pts[16].y);
+
+    // float avg = (d0+d1+d2+d3+d4+d5+d6+d7+d8+d9)/10;
+    // float mse = sqrt(pow(d0-avg,2)
+    //                 + pow(d1-avg,2)
+    //                 + pow(d2-avg,2)
+    //                 + pow(d3-avg,2)
+    //                 + pow(d4-avg,2)
+    //                 + pow(d5-avg,2)
+    //                 + pow(d6-avg,2)
+    //                 + pow(d7-avg,2)
+    //                 + pow(d8-avg,2)
+    //                 + pow(d9-avg,2));
 
     return mse;
 
@@ -212,6 +260,10 @@ void vpi_undist(cv::Mat &img, cv::Size &imgSize, std::vector<double> &coeffs, VP
 
  
 int main() {
+
+    // Defining the dimensions of checkerboard
+    int CHECKERBOARD[2] = {9,5}; 
+
     // Creating vector to store vectors of 3D points for each checkerboard image
     vector<vector<cv::Point3f> > objpoints;
 
@@ -260,7 +312,7 @@ int main() {
 
         img_clone = img.clone();
         imgSize = img_clone.size();
-        stc_vpi_param.vpi_k1 += 0.000005;
+        stc_vpi_param.vpi_k1 -= 0.00005;
 
         make_VPICamera_Param(imgSize, stc_vpi_param, K, X, coeffs);
         vpi_undist(img_clone, imgSize, coeffs, stream, remap, K, X, tmpIn, tmpOut, vimg);
@@ -271,12 +323,12 @@ int main() {
         success = cv::findChessboardCorners(gray_und, cv::Size(CHECKERBOARD[0], CHECKERBOARD[1]), corner_pts, cv::CALIB_CB_ADAPTIVE_THRESH | cv::CALIB_CB_FAST_CHECK | cv::CALIB_CB_NORMALIZE_IMAGE);
 
         if (success) {
-            mse = make_dist_mse_loss(corner_pts);
+            mse = make_dist_mse_loss(corner_pts, CHECKERBOARD);
             cout << "[Find Chessboard] [k1 : " << stc_vpi_param.vpi_k1 <<"] | mse : " << mse << endl;
 
             corner_pts.clear();
 
-            if (b_mse > mse) {
+            if (b_mse < mse) {
                 cout << "b_mse : " << b_mse << " | mse : " << mse << endl;
                 break;
             }
@@ -284,6 +336,8 @@ int main() {
             b_mse = mse;
         }
     }
+
+    cout << stc_vpi_param.vpi_k1 << endl;
 
     return 0;
 }
